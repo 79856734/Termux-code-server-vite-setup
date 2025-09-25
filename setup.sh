@@ -44,7 +44,7 @@ echo
 
 if prompt_yesno "This script will install code-server, proot-distro with either Ubuntu or Debian, npm with vite and some helper scripts.
 ${YELLOW}Install size may be 1GB or greater${RESET}
-${GREEN}Would you like to install?${RESET} (${GREEN}y${RESET}/${RED}n${RESET})"; then
+${GREEN}Would you like to install?"; then
   info "Running package updates and installs..."
   pkg update
   pkg i tur-repo -y
