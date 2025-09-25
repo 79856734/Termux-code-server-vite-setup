@@ -49,7 +49,6 @@ echo
 if prompt_yesno "This script will update Termux packages and install code-server, proot-distro, and utilities. Continue?"; then
   info "Running package updates and installs..."
   pkg update
-  pkg upgrade
   pkg tur-repo -y
   pkg i code-server -y
   pkg i proot-distro -y
