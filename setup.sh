@@ -42,7 +42,7 @@ prompt_yesno() {
 }
 
 echo -e "${BOLD}${CYAN}############################################################${RESET}"
-echo -e "${BOLD}${CYAN}# Termux interactive installer for code-server & proot distros #${RESET}"
+echo -e "${BOLD}${CYAN}-  Mostafa_XS1's code-server, proot and vite setup script  -${RESET}"
 echo -e "${BOLD}${CYAN}############################################################${RESET}"
 echo
 
