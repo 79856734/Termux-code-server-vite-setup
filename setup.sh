@@ -1,10 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# termux-setup-code-server.sh
-# Interactive Termux installer: code-server, proot-distro, optional VS Code gallery swap,
-# installs Ubuntu or Debian via proot-distro and seeds helper scripts into ~/code-scripts/.
-# Then logs into the distro as user 'code', installs Node, and runs npm create vite@latest.
-#
-# Inspect before running. Use at your own risk.
+
+clear
 
 set -o errexit
 set -o pipefail
@@ -46,7 +42,9 @@ echo -e "${BOLD}${CYAN}-  Mostafa_XS1's code-server, proot and vite setup script
 echo -e "${BOLD}${CYAN}############################################################${RESET}"
 echo
 
-if prompt_yesno "This script will update Termux packages and install code-server, proot-distro, and utilities. Continue?"; then
+if prompt_yesno "This script will install code-server, proot-distro with either Ubuntu or Debian, npm with vite and some helper scripts.
+${YELLOW}Install size may be 1GB or greater${RESET}
+${GREEN}Would you like to install?${RESET} (${GREEN}y${RESET}/${RED}n${RESET})"; then
   info "Running package updates and installs..."
   pkg update
   pkg i tur-repo -y
@@ -57,9 +55,10 @@ if prompt_yesno "This script will update Termux packages and install code-server
   pkg i git -y
   ok "pkg commands finished."
 else
-  err "Aborting per user request."
+  err "${RED}Canceled.${RESET}"
   exit 0
 fi
+
 
 # Option: replace open-vsx with official VS Code marketplace
 if prompt_yesno "Would you like to replace open-vsx with the official VS Code Marketplace (modify code-server's product.json)?"; then
@@ -116,13 +115,22 @@ $PROOT_CMD install "$DIST" || warn "proot-distro install returned non-zero exit 
 # Run initial root-level setup inside the distro (apt update/upgrade, add user)
 info "Running initial setup inside ${DIST} (apt update/upgrade, adduser 'code')..."
 $PROOT_CMD login "$DIST" -- bash -lc $'set -euo pipefail
-apt update && apt upgrade -y
+export DEBIAN_FRONTEND=noninteractive
+apt update
+apt upgrade -y
 apt install -y sudo nano adduser
 # create code user non-interactively if missing
 if ! id -u code >/dev/null 2>&1; then
   adduser --disabled-password --gecos "" code || true
 fi
 usermod -aG sudo code || true
+# Ensure sudoers.d exists, then create a safe sudoers drop-in for passwordless sudo
+mkdir -p /etc/sudoers.d
+# write file atomically and set secure permissions
+printf "%s\n" "code ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/code.tmp && \
+mv /etc/sudoers.d/code.tmp /etc/sudoers.d/code && \
+chmod 0440 /etc/sudoers.d/code || true
+# finish up
 mkdir -p /home/code/vite-projects
 chown -R code:code /home/code/vite-projects
 echo "[+] In-distro root setup complete."'
@@ -140,7 +148,7 @@ if [ "$DIST" = "ubuntu" ]; then
     ["cdvite.sh"]="https://pastebin.com/raw/BvtbatUj"
     ["start-dev.sh"]="https://pastebin.com/raw/awf1F7uJ"
     ["show-local-ip.sh"]="https://pastebin.com/raw/yXQUpGkh"
-    ["code-server.sh"]="https://pastebin.com/raw/aSiLFnX9"
+    ["code-server-start.sh"]="https://pastebin.com/raw/aSiLFnX9"
   )
 else
   declare -A files=(
@@ -148,7 +156,7 @@ else
     ["cdvite.sh"]="https://pastebin.com/raw/Eek9cfjF"
     ["start-dev.sh"]="https://pastebin.com/raw/pbDKy2ye"
     ["show-local-ip.sh"]="https://pastebin.com/raw/yXQUpGkh"
-    ["code-server.sh"]="https://pastebin.com/raw/aSiLFnX9"
+    ["code-server-start.sh"]="https://pastebin.com/raw/aSiLFnX9"
   )
 fi
 
@@ -168,16 +176,17 @@ for name in "${!files[@]}"; do
   ok "Saved $dest"
 done
 
-# Create ~/bin and symlink each script (strip .sh extension for link name)
-info "Creating ~/bin and symlinks..."
-mkdir -p "$HOME/bin"
-for f in "$SCRIPTS_DIR"/*; do
-  [ -f "$f" ] || continue
-  base="$(basename "$f")"
-  name="${base%.sh}"
-  ln -sf "$f" "$HOME/bin/$name"
+# short snippet: symlink scripts (strip .sh) into ~/bin and ensure ~/bin is on PATH
+SCRIPTS_DIR="${SCRIPTS_DIR:-$HOME/code-scripts}"; BIN="$HOME/bin"
+mkdir -p "$BIN"
+[ -d "$SCRIPTS_DIR" ] && for f in "$SCRIPTS_DIR"/*; do [ -f "$f" ] || continue; chmod +x "$f" || true; ln -sf "$f" "$BIN/$(basename "${f%.sh}")"; done
+_add='export PATH="$HOME/bin:$PATH"'
+for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile"; do
+  touch "$rc"
+  grep -qxF "$_add" "$rc" || printf '\n# ensure user bin in PATH\n%s\n' "$_add" >> "$rc"
 done
-ok "Symlinks created in $HOME/bin. Make sure $HOME/bin is in your PATH."
+# apply now (best-effort)
+for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile"; do [ -f "$rc" ] && . "$rc"; done
 
 # After preparing everything, login as 'code' user, install node, and create a vite project
 echo
@@ -185,14 +194,15 @@ info "Now will log into the distro as user ${BOLD}code${RESET}, install Node, an
 info "If npm create prompts, follow prompts to scaffold your project. After these commands you will be dropped into an interactive shell inside the distro."
 
 # Run the node install + npm create as the 'code' user, then drop to interactive shell
-# Use sudo (the 'code' user is a sudoer)
+# Use sudo (the 'code' user is a sudoer and passwordless)
 $PROOT_CMD login "$DIST" --user code -- bash -lc $'set -euo pipefail
 echo "[*] Updating apt and installing node/npm (via sudo)..."
 sudo apt update
 sudo apt install -y nodejs npm
 mkdir -p ~/vite-projects
 cd ~/vite-projects || exit 1
-echo \"[*] Running: npm create vite@latest — this may prompt interactively. If it does, follow the prompts.\"
+echo "[*] Running: npm create vite@latest — this may prompt interactively. If it does, follow the prompts."
+rm -rf ~/.npm/_cacache && npm cache clean --force && npm install -g npm@latest && npm --cache /tmp/npm-cache create vite@latest
 # Allow npm create to run; if it exits non-zero, continue to drop into shell.
 npm create vite@latest || true
 # Keep an interactive shell open for the user
